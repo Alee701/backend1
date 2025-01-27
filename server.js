@@ -1,145 +1,57 @@
-const express = require("express");
+const express = require('express');
+const dotenv = require('./Config/dotenv');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
+const loanRoutes = require('./routes/loanRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const cors = require('cors');
+const morgan = require('morgan'); // For advanced logging
+const helmet = require('helmet'); // For security headers
+const rateLimit = require('express-rate-limit'); // For rate limiting
+const { errorHandler, notFoundHandler } = require('./middlewares/errorMiddleware');
+
+// Load environment variables
+dotenv();
+
+// Connect to the database
+connectDB();
+
 const app = express();
-require("dotenv").config();
-const cors = require("cors");
-const cookieParser = require("cookie-parser");
-const nodemailer = require("nodemailer");
-const mongoDB = require("./Config/db");
-const user = require("./models/User");
-const LoanForm = require("./models/LoanForm")
-const multer = require("multer");
 
-mongoDB();
-app.use(express.json());
-app.use(cors());
-app.use(cookieParser());
+// Middleware
+app.use(cors()); // Enable Cross-Origin Resource Sharing
+app.use(express.json()); // Parse JSON request bodies
+app.use(helmet()); // Add security headers
+app.use(morgan('dev')); // Logging for development
 
-app.post("/email-send", async (req, res) => {
-  const userData = req.body;
+// Rate Limiting (Prevent DoS attacks)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+  message: 'Too many requests from this IP, please try again later.',
+});
+app.use('/api', apiLimiter); // Apply rate limiting to all API routes
 
-  // Check if email is provided
-  if (!userData.email) {
-    return res.status(400).json({ message: "Email is required" });
-  }
+// Routes
+app.use('/api/auth', authRoutes); // Authentication routes
+app.use('/api/loans', loanRoutes); // Loan-related routes
+app.use('/api/admin', adminRoutes); // Admin-related routes
+app.use('/api/notifications', notificationRoutes); // Notification-related routes
 
-  // Generate random password
-  const generatePassword = () => {
-    const characters =
-      "12345678910";
-    let password = "";
-    for (let i = 0; i < 10; i++) {
-      password += characters.charAt(
-        Math.floor(Math.random() * characters.length)
-      );
-    }
-    return password;
-  };
-
-  const randomPassword = generatePassword();
-
-  // Email options
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: userData.email,
-    subject: "Your New Password",
-    text: `Hello! 👋 Your generated password is: ${randomPassword} 🔑. This is a temporary password, valid for a short time ⏳. Please use it as soon as possible to access your account.
-    Best regards, 
-    Mudassir Hussain 👨‍💻
-`,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    const newUser = user.create({
-      name: userData.name,
-      email: userData.email,
-      cnic: userData.cnic,
-      password: randomPassword,
-    });
-    if (newUser) {
-      return res.status(201).json({message: "User created"})
-    } else {
-      return res.status(500).json({ message: "Failed to create user" });
-    }
-  } catch (error) {
-    console.error("Error sending email:", error);
-    res.status(500).json({ message: "Failed to send email" });
-  }
+// Health Check Endpoint
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ message: 'API is up and running!', uptime: process.uptime() });
 });
 
-const transporter = nodemailer.createTransport({
-  service: "gmail", // Use your email service provider
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  port: 587,
-});
+// Handle 404 (Not Found)
+app.use(notFoundHandler);
 
-function generatePassword() {
-  const characters =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let password = "";
-  for (let i = 0; i < 10; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    password += characters[randomIndex];
-  }
-  return password;
-}
+// Custom Error Handling Middleware
+app.use(errorHandler);
 
-
-
-
-
-app.post('/login', async (req, res) => {
-    const { email, password } = req.body;
-  
-    try {
-      const userverify = await user.findOne({ email });
-      if (!userverify) {
-        return res.status(400).json({ message: 'Invalid login credentials' });
-      }
-
-      if (userverify.password === password) {
-        return res.json({ message: 'Login successful', Credentials: true });
-      } else {
-        return res.status(400).json({ message: 'Invalid login credentials' });
-      }
-  
-    } catch (error) {
-      console.error('Error during login:', error);
-      return res.status(500).json({ message: 'Server error' });
-    }
-  });
-
-
-
-// loan form Data 
-app.post('/loan-request', async (req, res) => {
-  try {
-    const { loanDetails, guarantors, documents } = req.body;
-
-      console.log(loanDetails)
-      console.log(guarantors)
-      console.log(documents)
-    // Create a new LoanRequest document
-    const newLoanRequest = new LoanForm({
-      loanDetails,
-      guarantors,
-      documents,
-    });
-
-    // Save the loan request to the database
-    await newLoanRequest.save();
-
-    res.status(201).json({ message: 'Loan request submitted successfully!' });
-  } catch (error) {
-    console.error('Error saving loan request:', error);
-    res.status(500).json({ message: 'Something went wrong, please try again.' });
-  }
-});
-
-
-app.listen(process.env.PORT || 5000, () => {
-  console.log(`Backend is Running on the port of ${process.env.PORT}`);
+// Start the server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
